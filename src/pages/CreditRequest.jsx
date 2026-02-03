@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { getDatabase, ref, get, update, remove, set, push } from 'firebase/database';
+import { db } from '../firebase';
 
 export default function CreditRequest() {
   const [creditRequests, setCreditRequests] = useState([]);
@@ -6,11 +8,9 @@ export default function CreditRequest() {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [creditAmount, setCreditAmount] = useState('');
-  const [deductAmount, setDeductAmount] = useState('');
   const [filter, setFilter] = useState('pending'); // pending, approved, rejected, all
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  const FIREBASE_DB_URL = 'https://fetchgo-73a4c-default-rtdb.asia-southeast1.firebasedatabase.app';
 
   useEffect(() => {
     fetchCreditRequests();
@@ -26,10 +26,11 @@ export default function CreditRequest() {
 
   const fetchCreditRequests = async () => {
     try {
-      const response = await fetch(`${FIREBASE_DB_URL}/credit.json`);
-      const data = await response.json();
+      const creditRef = ref(db, 'credit');
+      const snapshot = await get(creditRef);
       
-      if (data) {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
         const requests = Object.keys(data)
           .map(key => ({
             id: key,
@@ -52,9 +53,9 @@ export default function CreditRequest() {
 
   const fetchRiderInfo = async (phoneKey) => {
     try {
-      const response = await fetch(`${FIREBASE_DB_URL}/ridersAccount/${phoneKey}.json`);
-      const data = await response.json();
-      return data;
+      const riderRef = ref(db, `ridersAccount/${phoneKey}`);
+      const snapshot = await get(riderRef);
+      return snapshot.val();
     } catch (error) {
       console.error('Error fetching rider info:', error);
       return null;
@@ -84,41 +85,42 @@ export default function CreditRequest() {
       const currentCredit = riderInfo.credit || 0;
       const newCredit = currentCredit + parseFloat(creditAmount);
 
-      const updateRiderResponse = await fetch(`${FIREBASE_DB_URL}/ridersAccount/${request.phoneKey}.json`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          credit: newCredit,
-          lastCreditUpdate: Date.now()
-        }),
+      const riderRef = ref(db, `ridersAccount/${request.phoneKey}`);
+      await update(riderRef, {
+        credit: newCredit,
+        lastCreditUpdate: Date.now()
       });
 
-      if (!updateRiderResponse.ok) {
-        throw new Error('Failed to update rider credit');
-      }
+      // Record credit history
+      const historyRef = ref(db, `creditHistory/${request.phoneKey}`);
+      const historySnapshot = await get(historyRef);
+      const existingHistory = historySnapshot.val() || [];
+      
+      const newTransaction = {
+        id: Date.now().toString(),
+        type: 'add',
+        amount: parseFloat(creditAmount),
+        timestamp: Date.now(),
+        adminEmail: 'admin@fetchgo.com',
+        riderPhoneNumber: request.phoneKey,
+        relatedRequestId: request.id,
+        source: 'credit_request'
+      };
+      
+      const updatedHistory = [...existingHistory, newTransaction];
+      await set(historyRef, updatedHistory);
 
       // Update credit request status
-      const updateRequestResponse = await fetch(`${FIREBASE_DB_URL}/credit/${request.id}.json`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status: 'approved',
-          approvedAmount: parseFloat(creditAmount),
-          approvedAt: Date.now(),
-          adminNote: `Approved credit of ₱${creditAmount}`
-        }),
+      const requestRef = ref(db, `credit/${request.id}`);
+      await update(requestRef, {
+        status: 'approved',
+        approvedAmount: parseFloat(creditAmount),
+        approvedAt: Date.now(),
+        adminNote: `Approved credit of ₱${creditAmount}`
       });
 
-      if (!updateRequestResponse.ok) {
-        throw new Error('Failed to update credit request');
-      }
-
       // Refresh the list
-      fetchCreditRequests();
+      await fetchCreditRequests();
       setShowDetails(false);
       setSelectedRequest(null);
       setCreditAmount('');
@@ -135,106 +137,21 @@ export default function CreditRequest() {
     }
 
     try {
-      const response = await fetch(`${FIREBASE_DB_URL}/credit/${request.id}.json`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status: 'rejected',
-          rejectedAt: Date.now(),
-          adminNote: 'Credit request rejected by admin'
-        }),
+      const requestRef = ref(db, `credit/${request.id}`);
+      await update(requestRef, {
+        status: 'rejected',
+        rejectedAt: Date.now(),
+        adminNote: 'Credit request rejected by admin'
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to reject credit request');
-      }
-
       // Refresh the list
-      fetchCreditRequests();
+      await fetchCreditRequests();
       setShowDetails(false);
       setSelectedRequest(null);
       alert('Credit request rejected!');
     } catch (error) {
       console.error('Error rejecting credit request:', error);
       alert('Failed to reject credit request. Please try again.');
-    }
-  };
-
-  const handleDeductCredit = async (request) => {
-    if (!deductAmount || parseFloat(deductAmount) <= 0) {
-      alert('Please enter a valid deduction amount');
-      return;
-    }
-
-    // Get current rider credit
-    const currentCredit = request.riderInfo?.credit || 0;
-    
-    if (parseFloat(deductAmount) > currentCredit) {
-      alert(`Cannot deduct ₱${deductAmount}. Rider only has ₱${currentCredit.toFixed(2)} available.`);
-      return;
-    }
-
-    if (!confirm(`Are you sure you want to deduct ₱${deductAmount} from this rider's credit?`)) {
-      return;
-    }
-
-    try {
-      // Update rider's credit balance
-      const newCredit = currentCredit - parseFloat(deductAmount);
-
-      const updateRiderResponse = await fetch(`${FIREBASE_DB_URL}/ridersAccount/${request.phoneKey}.json`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          credit: newCredit,
-          lastCreditUpdate: Date.now()
-        }),
-      });
-
-      if (!updateRiderResponse.ok) {
-        throw new Error('Failed to update rider credit');
-      }
-
-      // Add deduction record to credit collection for tracking
-      const deductionRecord = {
-        phoneKey: request.phoneKey,
-        type: 'deduction',
-        amount: parseFloat(deductAmount),
-        previousCredit: currentCredit,
-        newCredit: newCredit,
-        reason: 'Admin deduction',
-        createdAt: Date.now(),
-        status: 'completed'
-      };
-
-      const addDeductionResponse = await fetch(`${FIREBASE_DB_URL}/credit.json`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(deductionRecord),
-      });
-
-      if (!addDeductionResponse.ok) {
-        throw new Error('Failed to record deduction');
-      }
-
-      // Refresh the data
-      fetchCreditRequests();
-      const updatedRiderInfo = await fetchRiderInfo(request.phoneKey);
-      setSelectedRequest({
-        ...request,
-        riderInfo: updatedRiderInfo
-      });
-      setDeductAmount('');
-      alert(`Successfully deducted ₱${deductAmount} from rider's credit. New balance: ₱${newCredit.toFixed(2)}`);
-    } catch (error) {
-      console.error('Error deducting credit:', error);
-      alert('Failed to deduct credit. Please try again.');
     }
   };
 
@@ -269,7 +186,6 @@ export default function CreditRequest() {
 
   const filteredRequests = creditRequests.filter(request => {
     if (filter === 'all') return true;
-    if (filter === 'deductions') return request.type === 'deduction';
     return request.status === filter;
   });
 
@@ -367,17 +283,6 @@ export default function CreditRequest() {
                 >
                   All ({creditRequests.length})
                 </button>
-                <button
-                  onClick={() => setFilter('deductions')}
-                  className="btn"
-                  style={{ 
-                    backgroundColor: filter === 'deductions' ? '#2196F3' : '#9e9e9e',
-                    padding: '8px 16px',
-                    fontSize: '14px'
-                  }}
-                >
-                  Deductions ({creditRequests.filter(r => r.type === 'deduction').length})
-                </button>
               </div>
             </div>
 
@@ -413,18 +318,6 @@ export default function CreditRequest() {
                       <div>
                         <h3 style={{ margin: '0 0 5px 0', color: '#1e3c72' }}>
                           Rider: {request.phoneKey}
-                          {request.type === 'deduction' && (
-                            <span style={{
-                              marginLeft: '10px',
-                              padding: '2px 8px',
-                              borderRadius: '12px',
-                              fontSize: '12px',
-                              backgroundColor: '#2196F3',
-                              color: 'white'
-                            }}>
-                              DEDUCTION
-                            </span>
-                          )}
                           <span style={{
                             marginLeft: '10px',
                             padding: '2px 8px',
@@ -436,25 +329,14 @@ export default function CreditRequest() {
                             {request.status}
                           </span>
                         </h3>
-                        {request.type === 'deduction' ? (
-                          <>
-                            <p style={{ margin: '0', color: '#666' }}>Amount Deducted: ₱{request.amount.toFixed(2)}</p>
-                            <p style={{ margin: '0', color: '#666' }}>Previous Balance: ₱{request.previousCredit.toFixed(2)}</p>
-                            <p style={{ margin: '0', color: '#666' }}>New Balance: ₱{request.newCredit.toFixed(2)}</p>
-                            <p style={{ margin: '0', color: '#666' }}>Reason: {request.reason}</p>
-                          </>
-                        ) : (
-                          <>
-                            <p style={{ margin: '0', color: '#666' }}>GCash Reference: {request.gcashReference}</p>
-                            {request.approvedAmount && (
-                              <p style={{ margin: '0', color: '#4CAF50', fontWeight: 'bold' }}>
-                                Amount Added: ₱{request.approvedAmount.toFixed(2)}
-                              </p>
-                            )}
-                          </>
+                        <p style={{ margin: '0', color: '#666' }}>GCash Reference: {request.gcashReference}</p>
+                        {request.approvedAmount && (
+                          <p style={{ margin: '0', color: '#4CAF50', fontWeight: 'bold' }}>
+                            Amount Added: ₱{request.approvedAmount.toFixed(2)}
+                          </p>
                         )}
                         <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#999' }}>
-                          {request.type === 'deduction' ? 'Deducted' : 'Requested'}: {formatDate(request.createdAt)}
+                          Requested: {formatDate(request.createdAt)}
                           {request.approvedAt && (
                             <span style={{ marginLeft: '10px', color: '#4CAF50' }}>
                               Approved: {formatDate(request.approvedAt)}
@@ -475,7 +357,7 @@ export default function CreditRequest() {
                         >
                           View Details
                         </button>
-                        {request.status === 'pending' && request.type !== 'deduction' && (
+                        {request.status === 'pending' && (
                           <button
                             onClick={() => handleReject(request)}
                             className="btn"
@@ -582,45 +464,6 @@ export default function CreditRequest() {
                 </div>
               </div>
             )}
-
-            {selectedRequest.status === 'approved' && selectedRequest.type !== 'deduction' && (
-              <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#fff3e0', borderRadius: '8px' }}>
-                <h4>Deduct Rider Credit</h4>
-                <div style={{ marginBottom: '15px' }}>
-                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>
-                    Credit Amount to Deduct (₱):
-                  </label>
-                  <input
-                    type="number"
-                    value={deductAmount}
-                    onChange={(e) => setDeductAmount(e.target.value)}
-                    placeholder="Enter amount to deduct"
-                    min="0"
-                    step="0.01"
-                    max={selectedRequest.riderInfo?.credit || 0}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      border: '1px solid #ddd',
-                      borderRadius: '4px',
-                      fontSize: '16px'
-                    }}
-                  />
-                  <small style={{ color: '#666', fontSize: '12px' }}>
-                    Available credit: ₱{(selectedRequest.riderInfo?.credit || 0).toFixed(2)}
-                  </small>
-                </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button
-                    onClick={() => handleDeductCredit(selectedRequest)}
-                    className="btn"
-                    style={{ backgroundColor: '#ff9800' }}
-                  >
-                    Deduct Credit
-                  </button>
-                </div>
-              </div>
-            )}
             
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
               <button
@@ -628,7 +471,6 @@ export default function CreditRequest() {
                   setShowDetails(false);
                   setSelectedRequest(null);
                   setCreditAmount('');
-                  setDeductAmount('');
                 }}
                 className="btn"
                 style={{ backgroundColor: '#9e9e9e' }}

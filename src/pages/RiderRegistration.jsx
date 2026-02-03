@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react';
-import { getDatabase, ref, get, update, remove } from 'firebase/database';
+import { getDatabase, ref, get, update, remove, set } from 'firebase/database';
+import { db } from '../firebase';
 
 export default function RiderRegistration() {
   const [pendingRiders, setPendingRiders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRider, setSelectedRider] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
-
-  const FIREBASE_DB_URL = 'https://fetchgo-73a4c-default-rtdb.asia-southeast1.firebasedatabase.app';
 
   useEffect(() => {
     fetchPendingRiders();
@@ -16,10 +15,11 @@ export default function RiderRegistration() {
   const fetchPendingRiders = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${FIREBASE_DB_URL}/manageriders.json`);
-      const data = await response.json();
+      const manageridersRef = ref(db, 'manageriders');
+      const snapshot = await get(manageridersRef);
       
-      if (data) {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
         const riders = Object.keys(data)
           .filter(key => data[key].status === 'pending')
           .map(key => ({
@@ -38,53 +38,59 @@ export default function RiderRegistration() {
   };
 
   const handleApprove = async (rider) => {
+    if (!rider || !rider.phoneNumber) {
+      console.error('Invalid rider data:', rider);
+      alert('Invalid rider data. Please try again.');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to approve ${rider.fullName || 'this rider'}?`)) {
+      return; // User cancelled the approval
+    }
+
     try {
+      console.log('Approving rider:', rider.phoneNumber);
+      
       // Move rider from manageriders to ridersAccount
       const riderData = {
-        fullName: rider.fullName,
+        fullName: rider.fullName || '',
         phoneNumber: rider.phoneNumber,
-        email: rider.email,
-        password: rider.password,
-        profileImage: rider.profileImage,
-        orcrImage: rider.orcrImage,
-        licenseImage: rider.licenseImage,
-        selfieImage: rider.selfieImage,
-        motorcycleImage: rider.motorcycleImage,
+        email: rider.email || '',
+        password: rider.password || '',
+        profileImage: rider.profileImage || '',
+        orcrImage: rider.orcrImage || '',
+        licenseImage: rider.licenseImage || '',
+        selfieImage: rider.selfieImage || '',
+        motorcycleImage: rider.motorcycleImage || '',
         status: 'approved',
-        createdAt: rider.createdAt,
+        createdAt: rider.createdAt || Date.now(),
         approvedAt: Date.now()
       };
 
-      // Add to ridersAccount
-      const addToRidersResponse = await fetch(`${FIREBASE_DB_URL}/ridersAccount/${rider.phoneNumber}.json`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(riderData),
-      });
+      console.log('Preparing to save rider data:', JSON.stringify(riderData, null, 2));
 
-      if (!addToRidersResponse.ok) {
-        throw new Error('Failed to approve rider');
-      }
+      // Add to ridersAccount
+      const ridersAccountRef = ref(db, `ridersAccount/${rider.phoneNumber}`);
+      await set(ridersAccountRef, riderData);
+
+      console.log('Successfully added to ridersAccount, now removing from manageriders...');
 
       // Remove from manageriders
-      const removeFromPendingResponse = await fetch(`${FIREBASE_DB_URL}/manageriders/${rider.phoneNumber}.json`, {
-        method: 'DELETE',
-      });
+      const manageridersRef = ref(db, `manageriders/${rider.phoneNumber}`);
+      await remove(manageridersRef);
 
-      if (!removeFromPendingResponse.ok) {
-        throw new Error('Failed to remove from pending');
-      }
+      console.log('Successfully removed from manageriders');
 
-      // Refresh the list
-      fetchPendingRiders();
+      // Refresh the list and UI
+      await fetchPendingRiders();
       setShowDetails(false);
       setSelectedRider(null);
-      alert('Rider approved successfully!');
+      
+      // Show success message
+      alert(`Successfully approved ${rider.fullName || 'rider'}!`);
     } catch (error) {
-      console.error('Error approving rider:', error);
-      alert('Failed to approve rider. Please try again.');
+      console.error('Error in handleApprove:', error);
+      alert(`Failed to approve rider: ${error.message || 'Please check console for details.'}`);
     }
   };
 
@@ -95,16 +101,11 @@ export default function RiderRegistration() {
 
     try {
       // Remove from manageriders
-      const response = await fetch(`${FIREBASE_DB_URL}/manageriders/${rider.phoneNumber}.json`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to reject rider');
-      }
+      const manageridersRef = ref(db, `manageriders/${rider.phoneNumber}`);
+      await remove(manageridersRef);
 
       // Refresh the list
-      fetchPendingRiders();
+      await fetchPendingRiders();
       setShowDetails(false);
       setSelectedRider(null);
       alert('Rider registration rejected!');

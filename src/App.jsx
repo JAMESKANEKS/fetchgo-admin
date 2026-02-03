@@ -10,6 +10,7 @@ import Statistics from "./pages/Statistics";
 import ArchiveOrders from "./pages/ArchiveOrders";
 import Navbar from "./assets/components/Navbar";
 import CustomerUsers from "./pages/CustomerUsers";
+import OrderList from "./pages/OrderList";
 
 function AppContent() {
   const { currentUser } = useAuth();
@@ -74,6 +75,14 @@ function AppContent() {
           element={
             <PrivateRoute>
               <CustomerUsers />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/orders"
+          element={
+            <PrivateRoute>
+              <OrderList />
             </PrivateRoute>
           }
         />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import "./Login.css";
@@ -9,22 +9,14 @@ function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { login, checkAuth, currentUser } = useAuth();
+  const { login, currentUser } = useAuth();
 
-  // Check if user is already logged in
-  useEffect(() => {
-    checkAuth();
-    if (currentUser) {
-      navigate('/');
-    }
-  }, [checkAuth, currentUser, navigate]);
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    const result = login(email, password);
+    const result = await login(email, password);
     if (result.success) {
       navigate('/');
     } else {

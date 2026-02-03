@@ -1,10 +1,12 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../firebase';
 
-// Hardcoded credentials (in a real app, this should be handled server-side)
-const HARDCODED_CREDENTIALS = {
-  email: 'admin@fetchgo.com',
-  password: 'admin123' // Change this to your desired password
-};
+// Admin emails that are allowed to access the admin panel
+const ADMIN_EMAILS = [
+  'admin@fetchgo.com',
+  // Add other admin emails here
+];
 
 export const AuthContext = createContext();
 
@@ -14,42 +16,81 @@ export function useAuth() {
 
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const login = (email, password) => {
-    if (email === HARDCODED_CREDENTIALS.email && 
-        password === HARDCODED_CREDENTIALS.password) {
-      const user = { email };
+  // Listen for auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
-      // Store user in localStorage to persist login on page refresh
-      localStorage.setItem('user', JSON.stringify(user));
-      return { success: true };
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const login = async (email, password) => {
+    try {
+      // Check if email is in admin list before attempting login
+      if (!ADMIN_EMAILS.includes(email)) {
+        return { 
+          success: false, 
+          error: 'Access denied. This account is not authorized for admin access.' 
+        };
+      }
+
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      return { success: true, user: userCredential.user };
+    } catch (error) {
+      let errorMessage = 'Login failed';
+      
+      switch (error.code) {
+        case 'auth/user-not-found':
+          errorMessage = 'No account found with this email address';
+          break;
+        case 'auth/wrong-password':
+          errorMessage = 'Incorrect password';
+          break;
+        case 'auth/invalid-email':
+          errorMessage = 'Invalid email address';
+          break;
+        case 'auth/user-disabled':
+          errorMessage = 'This account has been disabled';
+          break;
+        case 'auth/too-many-requests':
+          errorMessage = 'Too many failed login attempts. Please try again later';
+          break;
+        default:
+          errorMessage = error.message;
+      }
+      
+      return { success: false, error: errorMessage };
     }
-    return { success: false, error: 'Invalid email or password' };
   };
 
-  const logout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem('user');
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
-  // Check for existing session on initial load
-  const checkAuth = () => {
-    const user = localStorage.getItem('user');
-    if (user) {
-      setCurrentUser(JSON.parse(user));
-    }
+  // Check if current user is admin
+  const isAdmin = () => {
+    return currentUser && ADMIN_EMAILS.includes(currentUser.email);
   };
 
   const value = {
     currentUser,
     login,
     logout,
-    checkAuth
+    loading,
+    isAdmin
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 }

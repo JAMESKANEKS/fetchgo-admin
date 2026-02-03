@@ -32,6 +32,8 @@ export default function Navbar() {
         <Link to="/archive-orders" style={linkStyle}>Archive Orders</Link>
 
         <Link to="/customer-users" style={linkStyle}>Customer Users</Link>
+        
+        <Link to="/orders" style={linkStyle}>Orders</Link>
 
       </div>
 

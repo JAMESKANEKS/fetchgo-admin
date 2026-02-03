@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { getDatabase, ref, get, update, remove, set } from 'firebase/database';
+import { db } from '../firebase';
 
 export default function ManageRiders() {
   const [approvedRiders, setApprovedRiders] = useState([]);
@@ -6,11 +8,14 @@ export default function ManageRiders() {
   const [selectedRider, setSelectedRider] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showAddCredit, setShowAddCredit] = useState(false);
+  const [showDeductCredit, setShowDeductCredit] = useState(false);
   const [creditAmount, setCreditAmount] = useState('');
   const [isAddingCredit, setIsAddingCredit] = useState(false);
+  const [isDeductingCredit, setIsDeductingCredit] = useState(false);
+  const [showCreditHistory, setShowCreditHistory] = useState(false);
+  const [creditHistory, setCreditHistory] = useState([]);
   const [filter, setFilter] = useState('all'); // all, active, suspended
 
-  const FIREBASE_DB_URL = 'https://fetchgo-73a4c-default-rtdb.asia-southeast1.firebasedatabase.app';
 
   useEffect(() => {
     fetchApprovedRiders();
@@ -19,10 +24,11 @@ export default function ManageRiders() {
   const fetchApprovedRiders = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${FIREBASE_DB_URL}/ridersAccount.json`);
-      const data = await response.json();
+      const ridersAccountRef = ref(db, 'ridersAccount');
+      const snapshot = await get(ridersAccountRef);
       
-      if (data) {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
         const riders = Object.keys(data)
           .map(key => ({
             id: key,
@@ -47,23 +53,14 @@ export default function ManageRiders() {
     }
 
     try {
-      const response = await fetch(`${FIREBASE_DB_URL}/ridersAccount/${rider.phoneNumber}.json`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status: 'suspended',
-          suspendedAt: Date.now()
-        }),
+      const riderRef = ref(db, `ridersAccount/${rider.phoneNumber}`);
+      await update(riderRef, {
+        status: 'suspended',
+        suspendedAt: Date.now()
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to suspend rider');
-      }
-
       // Refresh the list
-      fetchApprovedRiders();
+      await fetchApprovedRiders();
       alert('Rider suspended successfully!');
     } catch (error) {
       console.error('Error suspending rider:', error);
@@ -77,23 +74,14 @@ export default function ManageRiders() {
     }
 
     try {
-      const response = await fetch(`${FIREBASE_DB_URL}/ridersAccount/${rider.phoneNumber}.json`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status: 'approved',
-          restoredAt: Date.now()
-        }),
+      const riderRef = ref(db, `ridersAccount/${rider.phoneNumber}`);
+      await update(riderRef, {
+        status: 'approved',
+        restoredAt: Date.now()
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to restore rider');
-      }
-
       // Refresh the list
-      fetchApprovedRiders();
+      await fetchApprovedRiders();
       alert('Rider restored successfully!');
     } catch (error) {
       console.error('Error restoring rider:', error);
@@ -107,22 +95,59 @@ export default function ManageRiders() {
     }
 
     try {
-      const response = await fetch(`${FIREBASE_DB_URL}/ridersAccount/${rider.phoneNumber}.json`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete rider');
-      }
+      const riderRef = ref(db, `ridersAccount/${rider.phoneNumber}`);
+      await remove(riderRef);
 
       // Refresh the list
-      fetchApprovedRiders();
+      await fetchApprovedRiders();
       setShowDetails(false);
       setSelectedRider(null);
       alert('Rider deleted successfully!');
     } catch (error) {
       console.error('Error deleting rider:', error);
       alert('Failed to delete rider. Please try again.');
+    }
+  };
+
+  const recordCreditHistory = async (riderPhoneNumber, type, amount, adminEmail) => {
+    try {
+      const historyRef = ref(db, `creditHistory/${riderPhoneNumber}`);
+      const snapshot = await get(historyRef);
+      const existingHistory = snapshot.val() || [];
+      
+      const newTransaction = {
+        id: Date.now().toString(),
+        type: type, // 'add' or 'deduct'
+        amount: parseFloat(amount),
+        timestamp: Date.now(),
+        adminEmail: adminEmail,
+        riderPhoneNumber: riderPhoneNumber
+      };
+      
+      const updatedHistory = [...existingHistory, newTransaction];
+      await set(historyRef, updatedHistory);
+      
+      return newTransaction;
+    } catch (error) {
+      console.error('Error recording credit history:', error);
+      throw error;
+    }
+  };
+
+  const fetchCreditHistory = async (riderPhoneNumber) => {
+    try {
+      const historyRef = ref(db, `creditHistory/${riderPhoneNumber}`);
+      const snapshot = await get(historyRef);
+      
+      if (snapshot.exists()) {
+        const history = snapshot.val();
+        // Sort by timestamp (newest first)
+        return history.sort((a, b) => b.timestamp - a.timestamp);
+      }
+      return [];
+    } catch (error) {
+      console.error('Error fetching credit history:', error);
+      return [];
     }
   };
 
@@ -139,8 +164,9 @@ export default function ManageRiders() {
     try {
       setIsAddingCredit(true);
       // Get current rider info to update credit balance
-      const response = await fetch(`${FIREBASE_DB_URL}/ridersAccount/${rider.phoneNumber}.json`);
-      const riderData = await response.json();
+      const riderRef = ref(db, `ridersAccount/${rider.phoneNumber}`);
+      const snapshot = await get(riderRef);
+      const riderData = snapshot.val();
       
       if (!riderData) {
         throw new Error('Rider account not found');
@@ -150,23 +176,22 @@ export default function ManageRiders() {
       const currentCredit = riderData.credit || 0;
       const newCredit = currentCredit + parseFloat(creditAmount);
 
-      const updateResponse = await fetch(`${FIREBASE_DB_URL}/ridersAccount/${rider.phoneNumber}.json`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          credit: newCredit,
-          lastCreditUpdate: Date.now()
-        }),
+      await update(riderRef, {
+        credit: newCredit,
+        lastCreditUpdate: Date.now()
       });
 
-      if (!updateResponse.ok) {
-        throw new Error('Failed to update rider credit');
-      }
+      // Record credit history
+      await recordCreditHistory(rider.phoneNumber, 'add', creditAmount, 'admin@fetchgo.com');
 
       // Refresh the list
       await fetchApprovedRiders();
+      
+      // Refresh credit history if viewing this rider
+      if (selectedRider && selectedRider.phoneNumber === rider.phoneNumber) {
+        const updatedHistory = await fetchCreditHistory(rider.phoneNumber);
+        setCreditHistory(updatedHistory);
+      }
       
       // If we're in the details view, update the selected rider
       if (selectedRider && selectedRider.phoneNumber === rider.phoneNumber) {
@@ -187,9 +212,80 @@ export default function ManageRiders() {
     }
   };
 
-  const viewRiderDetails = (rider) => {
+  const handleDeductCredit = async (rider) => {
+    if (!creditAmount || parseFloat(creditAmount) <= 0) {
+      alert('Please enter a valid credit amount');
+      return;
+    }
+
+    // Get current rider info to check credit balance
+    try {
+      const riderRef = ref(db, `ridersAccount/${rider.phoneNumber}`);
+      const snapshot = await get(riderRef);
+      const riderData = snapshot.val();
+      
+      if (!riderData) {
+        throw new Error('Rider account not found');
+      }
+
+      const currentCredit = riderData.credit || 0;
+      const deductAmount = parseFloat(creditAmount);
+
+      if (currentCredit < deductAmount) {
+        alert(`Insufficient credit. Current balance: ₱${currentCredit.toFixed(2)}, Attempted to deduct: ₱${deductAmount.toFixed(2)}`);
+        return;
+      }
+
+      if (!confirm(`Are you sure you want to deduct ₱${creditAmount} credit from ${rider.fullName}?`)) {
+        return;
+      }
+
+      setIsDeductingCredit(true);
+      const newCredit = currentCredit - deductAmount;
+
+      await update(riderRef, {
+        credit: newCredit,
+        lastCreditUpdate: Date.now()
+      });
+
+      // Record credit history
+      await recordCreditHistory(rider.phoneNumber, 'deduct', creditAmount, 'admin@fetchgo.com');
+
+      // Refresh the list
+      await fetchApprovedRiders();
+      
+      // Refresh credit history if viewing this rider
+      if (selectedRider && selectedRider.phoneNumber === rider.phoneNumber) {
+        const updatedHistory = await fetchCreditHistory(rider.phoneNumber);
+        setCreditHistory(updatedHistory);
+      }
+      
+      // If we're in the details view, update the selected rider
+      if (selectedRider && selectedRider.phoneNumber === rider.phoneNumber) {
+        setSelectedRider({
+          ...selectedRider,
+          credit: newCredit
+        });
+      }
+      
+      setCreditAmount('');
+      setShowDeductCredit(false);
+      alert(`Successfully deducted ₱${creditAmount} credit from ${rider.fullName}'s account.`);
+    } catch (error) {
+      console.error('Error deducting credit:', error);
+      alert('Failed to deduct credit. Please try again.');
+    } finally {
+      setIsDeductingCredit(false);
+    }
+  };
+
+  const viewRiderDetails = async (rider) => {
     setSelectedRider(rider);
     setShowDetails(true);
+    
+    // Fetch credit history for this rider
+    const history = await fetchCreditHistory(rider.phoneNumber);
+    setCreditHistory(history);
   };
 
   const formatDate = (timestamp) => {
@@ -386,7 +482,7 @@ export default function ManageRiders() {
                 <div style={{ marginTop: '20px' }}>
                   <h4>Manage Credit</h4>
                   {showAddCredit ? (
-                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
                       <input
                         type="number"
                         value={creditAmount}
@@ -426,18 +522,73 @@ export default function ManageRiders() {
                         Cancel
                       </button>
                     </div>
+                  ) : showDeductCredit ? (
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
+                      <input
+                        type="number"
+                        value={creditAmount}
+                        onChange={(e) => setCreditAmount(e.target.value)}
+                        placeholder="Enter amount"
+                        style={{
+                          padding: '8px',
+                          borderRadius: '4px',
+                          border: '1px solid #ddd',
+                          width: '150px'
+                        }}
+                      />
+                      <button
+                        onClick={() => handleDeductCredit(selectedRider)}
+                        disabled={isDeductingCredit}
+                        className="btn"
+                        style={{ 
+                          backgroundColor: '#ff9800',
+                          padding: '8px 16px',
+                          opacity: isDeductingCredit ? 0.7 : 1,
+                          cursor: isDeductingCredit ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        {isDeductingCredit ? 'Deducting...' : 'Deduct Credit'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowDeductCredit(false);
+                          setCreditAmount('');
+                        }}
+                        className="btn"
+                        style={{ 
+                          backgroundColor: '#9e9e9e',
+                          padding: '8px 16px'
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   ) : (
-                    <button
-                      onClick={() => setShowAddCredit(true)}
-                      className="btn"
-                      style={{ 
-                        backgroundColor: '#1e3c72',
-                        padding: '8px 16px',
-                        marginTop: '10px'
-                      }}
-                    >
-                      Add Credit
-                    </button>
+                    <div>
+                      <button
+                        onClick={() => setShowAddCredit(true)}
+                        className="btn"
+                        style={{ 
+                          backgroundColor: '#1e3c72',
+                          padding: '8px 16px',
+                          marginTop: '10px',
+                          marginRight: '10px'
+                        }}
+                      >
+                        Add Credit
+                      </button>
+                      <button
+                        onClick={() => setShowDeductCredit(true)}
+                        className="btn"
+                        style={{ 
+                          backgroundColor: '#ff9800',
+                          padding: '8px 16px',
+                          marginTop: '10px'
+                        }}
+                      >
+                        Deduct Credit
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -494,6 +645,70 @@ export default function ManageRiders() {
                     />
                   )}
                 </div>
+              </div>
+              
+              {/* Credit History Section */}
+              <div style={{ marginTop: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <h4>Credit History</h4>
+                  <button
+                    onClick={() => setShowCreditHistory(!showCreditHistory)}
+                    className="btn"
+                    style={{ 
+                      backgroundColor: '#1e3c72',
+                      padding: '6px 12px',
+                      fontSize: '12px'
+                    }}
+                  >
+                    {showCreditHistory ? 'Hide' : 'Show'} History
+                  </button>
+                </div>
+                
+                {showCreditHistory && (
+                  <div style={{ 
+                    border: '1px solid #ddd', 
+                    borderRadius: '8px', 
+                    padding: '15px',
+                    backgroundColor: '#f9f9f9',
+                    maxHeight: '300px',
+                    overflowY: 'auto'
+                  }}>
+                    {creditHistory.length === 0 ? (
+                      <p style={{ color: '#666', fontStyle: 'italic' }}>No credit transactions found.</p>
+                    ) : (
+                      <div>
+                        {creditHistory.map((transaction) => (
+                          <div key={transaction.id} style={{
+                            borderBottom: '1px solid #eee',
+                            padding: '10px 0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}>
+                            <div>
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                fontSize: '11px',
+                                backgroundColor: transaction.type === 'add' ? '#4CAF50' : '#ff9800',
+                                color: 'white',
+                                marginRight: '8px'
+                              }}>
+                                {transaction.type === 'add' ? '+' : '-'}₱{transaction.amount.toFixed(2)}
+                              </span>
+                              <span style={{ fontSize: '12px', color: '#666' }}>
+                                {formatDate(transaction.timestamp)}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#999' }}>
+                              by {transaction.adminEmail}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             
