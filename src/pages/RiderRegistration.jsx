@@ -56,7 +56,6 @@ export default function RiderRegistration() {
         fullName: rider.fullName || '',
         phoneNumber: rider.phoneNumber,
         email: rider.email || '',
-        password: rider.password || '',
         profileImage: rider.profileImage || '',
         orcrImage: rider.orcrImage || '',
         licenseImage: rider.licenseImage || '',
