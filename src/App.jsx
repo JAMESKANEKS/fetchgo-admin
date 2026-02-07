@@ -11,86 +11,97 @@ import ArchiveOrders from "./pages/ArchiveOrders";
 import Navbar from "./assets/components/Navbar";
 import CustomerUsers from "./pages/CustomerUsers";
 import OrderList from "./pages/OrderList";
+import Chat from "./pages/Chat";
 
 function AppContent() {
   const { currentUser } = useAuth();
   
   return (
-    <>
+    <div className="app-layout">
       {currentUser && <Navbar />}
-      <Routes>
-        <Route path="/login" element={!currentUser ? <Login /> : <Navigate to="/" replace />} />
-        
-        {/* Protected Routes */}
-        <Route
-          path="/"
-          element={
-            <PrivateRoute>
-              <RiderRegistration />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/manage-riders"
-          element={
-            <PrivateRoute>
-              <ManageRiders />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/credit-request"
-          element={
-            <PrivateRoute>
-              <CreditRequest />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/profile-changes"
-          element={
-            <PrivateRoute>
-              <ProfileChanges />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/statistics"
-          element={
-            <PrivateRoute>
-              <Statistics />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/archive-orders"
-          element={
-            <PrivateRoute>
-              <ArchiveOrders />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/customer-users"
-          element={
-            <PrivateRoute>
-              <CustomerUsers />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/orders"
-          element={
-            <PrivateRoute>
-              <OrderList />
-            </PrivateRoute>
-          }
-        />
-        
-        {/* Redirect any unknown paths to home */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </>
+      <div className="main-content">
+        <Routes>
+          <Route path="/login" element={!currentUser ? <Login /> : <Navigate to="/" replace />} />
+          
+          {/* Protected Routes */}
+          <Route
+            path="/"
+            element={
+              <PrivateRoute>
+                <RiderRegistration />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/manage-riders"
+            element={
+              <PrivateRoute>
+                <ManageRiders />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/credit-request"
+            element={
+              <PrivateRoute>
+                <CreditRequest />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/profile-changes"
+            element={
+              <PrivateRoute>
+                <ProfileChanges />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/statistics"
+            element={
+              <PrivateRoute>
+                <Statistics />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/archive-orders"
+            element={
+              <PrivateRoute>
+                <ArchiveOrders />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/customer-users"
+            element={
+              <PrivateRoute>
+                <CustomerUsers />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/orders"
+            element={
+              <PrivateRoute>
+                <OrderList />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/chat"
+            element={
+              <PrivateRoute>
+                <Chat />
+              </PrivateRoute>
+            }
+          />
+          
+          {/* Redirect any unknown paths to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+    </div>
   );
 }
 
