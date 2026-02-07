@@ -66,6 +66,18 @@
 .rider-name {
   font-weight: 600;
   margin-bottom: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.user-type-badge {
+  background: #ff6b35;
+  color: white;
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-weight: 500;
 }
 
 .last-message {
@@ -116,6 +128,12 @@
   font-size: 1.2rem;
 }
 
+.user-email {
+  margin: 0.25rem 0 0 0;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
 .messages-container {
   flex: 1;
   overflow-y: auto;
@@ -128,7 +146,7 @@
   max-width: 70%;
 }
 
-.rider-message {
+.user-message {
   align-self: flex-start;
 }
 
@@ -143,7 +161,7 @@
   word-wrap: break-word;
 }
 
-.rider-message .message-content {
+.user-message .message-content {
   background: #e3f2fd;
   color: #1565c0;
   border-bottom-left-radius: 0.25rem;
@@ -162,8 +180,14 @@
   text-align: right;
 }
 
-.rider-message .message-time {
+.user-message .message-time {
   text-align: left;
+}
+
+.message-source {
+  font-size: 0.65rem;
+  color: #999;
+  font-style: italic;
 }
 
 .no-messages {
